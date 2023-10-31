@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
+//go:build !windows
 // +build !windows
 
 package dokan
@@ -11,12 +12,12 @@ import "C"
 import (
 	"errors"
 
-	"github.com/keybase/kbfs/dokan/winacl"
+	"github.com/stirante/dokan-go/winacl"
 )
 
 var errNotWindows = errors.New("dokan not supported outside Windows")
 
-func loadDokanDLL(fullpath string) error { return errNotWindows }
+func loadDokanDLL(*Config) error { return errNotWindows }
 
 // FileInfo contains information about files, this is a dummy definition.
 type FileInfo struct {
@@ -52,6 +53,6 @@ const (
 	kbfsLibdokanUseFindFilesWithPattern
 )
 
-func currentProcessUserSid() (*winacl.SID, error) {
+func currentProcessUserSid() (*winacl.SID, error) { // nolint
 	return nil, errNotWindows
 }

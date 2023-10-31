@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/keybase/kbfs/dokan/winacl"
+	"github.com/stirante/dokan-go/winacl"
 )
 
-type errorFile struct {
+type errorFile struct { // nolint
 	fs FileSystem
 }
 

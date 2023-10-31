@@ -3,9 +3,15 @@
 Dokan is a library for implementing user mode filesystems on Windows. 
 This library provides a thin binding to the library for Go programs.
 
+## Fork
+
+This fork is just a copy of changes from [keybase/client](https://github.com/keybase/client).
+
+It's compatible with [Dokany 1.2](https://github.com/dokan-dev/dokany/releases/tag/v1.2.2.1000)
+
 # Documentation
 
-https://godoc.org/github.com/keybase/dokan-go
+https://godoc.org/github.com/stirante/dokan-go
 
 # Licensing
 

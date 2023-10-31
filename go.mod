@@ -1,0 +1,5 @@
+module github.com/stirante/dokan-go
+
+go 1.18
+
+require golang.org/x/sys v0.13.0

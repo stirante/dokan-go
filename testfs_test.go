@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
+//go:build windows
 // +build windows
 
 package dokan
@@ -9,6 +10,7 @@ package dokan
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -18,8 +20,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/keybase/kbfs/dokan/winacl"
-	"github.com/keybase/kbfs/ioutil"
+	"github.com/stirante/dokan-go/winacl"
 	"golang.org/x/sys/windows"
 )
 
@@ -42,7 +43,7 @@ func TestEmptyFS(t *testing.T) {
 
 func testShouldNotExist(t *testing.T) {
 	_, err := os.Open(`T:\should-not-exist`)
-	if !ioutil.IsNotExist(err) {
+	if !os.IsNotExist(err) {
 		t.Fatal("Opening non-existent file:", err)
 	}
 }
@@ -193,9 +194,9 @@ func testReaddir(t *testing.T) {
 }
 
 func testPlaceHolderRemoveRename(t *testing.T) {
-	ioutil.Remove(`T:\hello.txt`)
-	ioutil.Remove(`T:\`)
-	ioutil.Rename(`T:\hello.txt`, `T:\does-not-exist2`)
+	os.Remove(`T:\hello.txt`)
+	os.Remove(`T:\`)
+	os.Rename(`T:\hello.txt`, `T:\does-not-exist2`)
 }
 
 func testDiskFreeSpace(t *testing.T) {
@@ -224,6 +225,10 @@ func testDiskFreeSpace(t *testing.T) {
 var _ FileSystem = emptyFS{}
 
 type emptyFS struct{}
+
+func (t emptyFS) Printf(format string, v ...interface{}) {
+	debug(fmt.Sprintf("emptyFS.Printf %s", fmt.Sprintf(format, v...)))
+}
 
 func (t emptyFile) GetFileSecurity(ctx context.Context, fi *FileInfo, si winacl.SecurityInformation, sd *winacl.SecurityDescriptor) error {
 	debug("emptyFS.GetFileSecurity")
@@ -259,9 +264,9 @@ func (t emptyFS) ErrorPrint(err error) {
 	debug(err)
 }
 
-func (t emptyFS) CreateFile(ctx context.Context, fi *FileInfo, cd *CreateData) (File, bool, error) {
+func (t emptyFS) CreateFile(ctx context.Context, fi *FileInfo, data *CreateData) (file File, status CreateStatus, err error) {
 	debug("emptyFS.CreateFile")
-	return emptyFile{}, true, nil
+	return emptyFile{}, NewFile, nil
 }
 func (t emptyFile) CanDeleteFile(ctx context.Context, fi *FileInfo) error {
 	return ErrAccessDenied
@@ -333,22 +338,22 @@ func newTestFS() *testFS {
 	return &t
 }
 
-func (t *testFS) CreateFile(ctx context.Context, fi *FileInfo, cd *CreateData) (File, bool, error) {
+func (t *testFS) CreateFile(ctx context.Context, fi *FileInfo, cd *CreateData) (File, CreateStatus, error) {
 	path := fi.Path()
 	debug("testFS.CreateFile", path)
 	switch path {
 	case `\hello.txt`:
-		return testFile{}, false, nil
+		return testFile{}, ExistingFile, nil
 	case `\ram.txt`:
-		return t.ramFile, false, nil
+		return t.ramFile, ExistingFile, nil
 	// SL_OPEN_TARGET_DIRECTORY may get empty paths...
 	case `\`, ``:
 		if cd.CreateOptions&FileNonDirectoryFile != 0 {
-			return nil, true, ErrFileIsADirectory
+			return nil, ExistingDir, ErrFileIsADirectory
 		}
-		return testDir{}, true, nil
+		return testDir{}, NewDir, nil
 	}
-	return nil, false, ErrObjectNameNotFound
+	return nil, NewFile, ErrObjectNameNotFound
 }
 func (t *testFS) GetDiskFreeSpace(ctx context.Context) (FreeSpace, error) {
 	debug("testFS.GetDiskFreeSpace")

@@ -1,7 +1,8 @@
-// Copyright 2015-2016 Keybase Inc. All rights reserved.
+// Copyright 2015-2018 Keybase Inc. All rights reserved.
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
+//go:build windows
 // +build windows
 
 package dokan
@@ -23,11 +24,11 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
-	"github.com/keybase/kbfs/dokan/winacl"
+	"github.com/stirante/dokan-go/winacl"
 	"golang.org/x/sys/windows"
 )
 
-// Wrap SID for users.
+// SID wraps syscall.SID for users.
 type SID syscall.SID
 
 const (
@@ -39,35 +40,23 @@ const (
 	kbfsLibdokanUseFindFilesWithPattern = MountFlag(C.kbfsLibdokanUseFindFilesWithPattern)
 )
 
-// loadDokanDLL can be called to init the system with custom Dokan location,
-// e.g. LoadDokanDLL(`C:\mypath\dokan1.dll`).
-func loadDokanDLL(fullpath string) error {
-	if fullpath == "" {
-		return nil
-	}
-	dw := syscall.Errno(C.kbfsLibdokanLoadLibrary((*C.WCHAR)(stringToUtf16Ptr(fullpath))))
-	if dw != 0 {
-		return dw
-	}
-	return nil
-}
-
 const ntstatusOk = C.NTSTATUS(0)
 
 func checkFileDirectoryFile(err error, isDir bool, createOptions uint32) {
-	if createOptions&createOptions&FileDirectoryFile != 0 && createOptions&FileNonDirectoryFile != 0 {
+	if createOptions&FileDirectoryFile != 0 && createOptions&FileNonDirectoryFile != 0 {
 		debugf("checkFileDirectoryFile both FileDirectoryFile FileNonDirectoryFile set")
 	}
-	if err == nil {
+	switch {
+	case err == nil:
 		if (!isDir && createOptions&FileDirectoryFile != 0) ||
 			(isDir && createOptions&FileNonDirectoryFile != 0) {
 			debugf("checkFileDirectoryFile INCONSISTENCY %v %08X", isDir, createOptions)
 		}
-	} else if err == ErrNotADirectory {
+	case err == ErrNotADirectory:
 		if createOptions&FileDirectoryFile == 0 {
 			debugf("checkFileDirectoryFile ErrNotADirectory but no createOptions&FileDirectoryFile")
 		}
-	} else if err == ErrFileIsADirectory {
+	case err == ErrFileIsADirectory:
 		if createOptions&FileNonDirectoryFile == 0 {
 			debugf("checkFileDirectoryFile ErrFileIsADirectory but no createOptions&FileNonDirectoryFile")
 		}
@@ -78,11 +67,11 @@ func checkFileDirectoryFile(err error, isDir bool, createOptions uint32) {
 func kbfsLibdokanCreateFile(
 	fname C.LPCWSTR,
 	psec C.PDOKAN_IO_SECURITY_CONTEXT,
-	DesiredAccess C.ACCESS_MASK,
-	FileAttributes C.ULONG,
-	ShareAccess C.ULONG,
+	DesiredAccess C.ACCESS_MASK, //nolint
+	FileAttributes C.ULONG, //nolint
+	ShareAccess C.ULONG, //nolint
 	cCreateDisposition C.ULONG,
-	CreateOptions C.ULONG,
+	CreateOptions C.ULONG, //nolint
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	var cd = CreateData{
 		DesiredAccess:     uint32(DesiredAccess),
@@ -98,14 +87,26 @@ func kbfsLibdokanCreateFile(
 	if cancel != nil {
 		defer cancel()
 	}
-	fi, isDir, err := fs.CreateFile(ctx, makeFI(fname, pfi), &cd)
+	fi, status, err := fs.CreateFile(ctx, makeFI(fname, pfi), &cd)
 	if isDebug {
-		checkFileDirectoryFile(err, isDir, uint32(CreateOptions))
+		checkFileDirectoryFile(err, status.IsDir(), uint32(CreateOptions))
+		debugf("CreateFile result: %v new-entry: %v raw %v", status.IsDir(), status.IsNew(), status)
+		if err == nil && status&isValid == 0 {
+			debugf("CreateFile invalid status for successful operation!")
+		}
 	}
-	if isDir {
+	if status.IsDir() {
 		pfi.IsDirectory = 1
 	}
+	if err == nil && !status.IsNew() && cd.CreateDisposition.isSignalExisting() {
+		debugf("CreateFile adding ErrObjectNameCollision")
+		err = ErrObjectNameCollision
+	}
 	return fiStore(pfi, fi, err)
+}
+
+func (cd CreateDisposition) isSignalExisting() bool {
+	return cd == FileOpenIf || cd == FileSupersede || cd == FileOverwriteIf
 }
 
 func globalContext() context.Context {
@@ -140,10 +141,10 @@ func kbfsLibdokanCloseFile(fname C.LPCWSTR, pfi C.PDOKAN_FILE_INFO) {
 //export kbfsLibdokanReadFile
 func kbfsLibdokanReadFile(
 	fname C.LPCWSTR,
-	Buffer C.LPVOID,
-	NumberOfBytesToRead C.DWORD,
-	NumberOfBytesRead C.LPDWORD,
-	Offset C.LONGLONG,
+	Buffer C.LPVOID, //nolint
+	NumberOfBytesToRead C.DWORD, //nolint
+	NumberOfBytesRead C.LPDWORD, //nolint
+	Offset C.LONGLONG, //nolint
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	debugf("ReadFile '%v' %d bytes @ %d %v", d16{fname}, NumberOfBytesToRead, Offset, *pfi)
 	ctx, cancel := getContext(pfi)
@@ -167,10 +168,10 @@ func kbfsLibdokanReadFile(
 //export kbfsLibdokanWriteFile
 func kbfsLibdokanWriteFile(
 	fname C.LPCWSTR,
-	Buffer C.LPCVOID,
-	NumberOfBytesToWrite C.DWORD,
-	NumberOfBytesWritten C.LPDWORD,
-	Offset C.LONGLONG,
+	Buffer C.LPCVOID, //nolint
+	NumberOfBytesToWrite C.DWORD, //nolint
+	NumberOfBytesWritten C.LPDWORD, //nolint
+	Offset C.LONGLONG, //nolint
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	debugf("WriteFile '%v' %d bytes @ %d %v", d16{fname}, NumberOfBytesToWrite, Offset, *pfi)
 	ctx, cancel := getContext(pfi)
@@ -218,7 +219,7 @@ func kbfsLibdokanGetFileInformation(
 		defer cancel()
 	}
 	st, err := getfi(pfi).GetFileInformation(ctx, makeFI(fname, pfi))
-	debug("->", st, err)
+	debugf("-> %#v, %v", st, err)
 	if st != nil {
 		sbuf.dwFileAttributes = C.DWORD(st.FileAttributes)
 		sbuf.ftCreationTime = packTime(st.Creation)
@@ -238,8 +239,8 @@ var errFindNoSpace = errors.New("Find out of space")
 
 //export kbfsLibdokanFindFiles
 func kbfsLibdokanFindFiles(
-	PathName C.LPCWSTR,
-	FindData C.PFillFindData, // call this function with PWIN32_FIND_DATAW
+	PathName C.LPCWSTR, //nolint
+	FindData C.PFillFindData, //nolint call this function with PWIN32_FIND_DATAW
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	debugf("FindFiles '%v' %v", d16{PathName}, *pfi)
 	return kbfsLibdokanFindFilesImpl(PathName, "", FindData, pfi)
@@ -247,9 +248,9 @@ func kbfsLibdokanFindFiles(
 
 //export kbfsLibdokanFindFilesWithPattern
 func kbfsLibdokanFindFilesWithPattern(
-	PathName C.LPCWSTR,
-	SearchPattern C.LPCWSTR,
-	FindData C.PFillFindData, // call this function with PWIN32_FIND_DATAW
+	PathName C.LPCWSTR, //nolint
+	SearchPattern C.LPCWSTR, //nolint
+	FindData C.PFillFindData, //nolint call this function with PWIN32_FIND_DATAW
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	pattern := lpcwstrToString(SearchPattern)
 	debugf("FindFilesWithPattern '%v' %v %q", d16{PathName}, *pfi, pattern)
@@ -257,9 +258,9 @@ func kbfsLibdokanFindFilesWithPattern(
 }
 
 func kbfsLibdokanFindFilesImpl(
-	PathName C.LPCWSTR,
+	PathName C.LPCWSTR, //nolint
 	pattern string,
-	FindData C.PFillFindData,
+	FindData C.PFillFindData, //nolint
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	debugf("FindFiles '%v' %v", d16{PathName}, *pfi)
 	ctx, cancel := getContext(pfi)
@@ -275,12 +276,12 @@ func kbfsLibdokanFindFilesImpl(
 		fdata.nFileSizeHigh = C.DWORD(ns.FileSize >> 32)
 		fdata.nFileSizeLow = C.DWORD(ns.FileSize)
 		fdata.dwReserved0 = C.DWORD(ns.ReparsePointTag)
-		stringToUtf16Buffer(ns.Name,
-			C.LPWSTR(unsafe.Pointer(&fdata.cFileName)),
+		stringToUtf16BufferPtr(ns.Name,
+			unsafe.Pointer(&fdata.cFileName),
 			C.DWORD(C.MAX_PATH))
 		if ns.ShortName != "" {
-			stringToUtf16Buffer(ns.ShortName,
-				C.LPWSTR(unsafe.Pointer(&fdata.cFileName)),
+			stringToUtf16BufferPtr(ns.ShortName,
+				unsafe.Pointer(&fdata.cFileName),
 				C.DWORD(14))
 		}
 
@@ -439,10 +440,10 @@ func kbfsLibdokanUnlockFile(
 
 //export kbfsLibdokanGetDiskFreeSpace
 func kbfsLibdokanGetDiskFreeSpace(
-	FreeBytesAvailable *C.ULONGLONG,
-	TotalNumberOfBytes *C.ULONGLONG,
-	TotalNumberOfFreeBytes *C.ULONGLONG,
-	FileInfo C.PDOKAN_FILE_INFO) C.NTSTATUS {
+	FreeBytesAvailable *C.ULONGLONG, //nolint
+	TotalNumberOfBytes *C.ULONGLONG, //nolint
+	TotalNumberOfFreeBytes *C.ULONGLONG, //nolint
+	FileInfo C.PDOKAN_FILE_INFO) C.NTSTATUS { //nolint
 	debug("GetDiskFreeSpace", *FileInfo)
 	fs := getfs(FileInfo)
 	ctx, cancel := fs.WithContext(globalContext())
@@ -468,14 +469,14 @@ func kbfsLibdokanGetDiskFreeSpace(
 
 //export kbfsLibdokanGetVolumeInformation
 func kbfsLibdokanGetVolumeInformation(
-	VolumeNameBuffer C.LPWSTR,
-	VolumeNameSize C.DWORD, // in num of chars
-	VolumeSerialNumber C.LPDWORD,
-	MaximumComponentLength C.LPDWORD, // in num of chars
-	FileSystemFlags C.LPDWORD,
-	FileSystemNameBuffer C.LPWSTR,
-	FileSystemNameSize C.DWORD, // in num of chars
-	FileInfo C.PDOKAN_FILE_INFO) C.NTSTATUS {
+	VolumeNameBuffer C.LPWSTR, //nolint
+	VolumeNameSize C.DWORD, //nolint in num of chars
+	VolumeSerialNumber C.LPDWORD, //nolint
+	MaximumComponentLength C.LPDWORD, //nolint in num of chars
+	FileSystemFlags C.LPDWORD, //nolint
+	FileSystemNameBuffer C.LPWSTR, //nolint
+	FileSystemNameSize C.DWORD, //nolint in num of chars
+	FileInfo C.PDOKAN_FILE_INFO) C.NTSTATUS { //nolint
 	debug("GetVolumeInformation", VolumeNameSize, MaximumComponentLength, FileSystemNameSize, *FileInfo)
 	fs := getfs(FileInfo)
 	ctx, cancel := fs.WithContext(globalContext())
@@ -523,7 +524,7 @@ func kbfsLibdokanGetFileSecurity(
 	// A pointer to SECURITY_DESCRIPTOR buffer to be filled
 	output C.PSECURITY_DESCRIPTOR,
 	outlen C.ULONG, // length of Security descriptor buffer
-	LengthNeeded *C.ULONG,
+	LengthNeeded *C.ULONG, //nolint
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	var si winacl.SecurityInformation
 	if input != nil {
@@ -556,9 +557,9 @@ func kbfsLibdokanGetFileSecurity(
 //export kbfsLibdokanSetFileSecurity
 func kbfsLibdokanSetFileSecurity(
 	fname C.LPCWSTR,
-	SecurityInformation C.PSECURITY_INFORMATION,
-	SecurityDescriptor C.PSECURITY_DESCRIPTOR,
-	SecurityDescriptorLength C.ULONG,
+	SecurityInformation C.PSECURITY_INFORMATION, //nolint
+	SecurityDescriptor C.PSECURITY_DESCRIPTOR, //nolint
+	SecurityDescriptorLength C.ULONG, //nolint
 	pfi C.PDOKAN_FILE_INFO) C.NTSTATUS {
 	debug("SetFileSecurity TODO")
 	return ntstatusOk
@@ -587,10 +588,17 @@ func makeFI(fname C.LPCWSTR, pfi C.PDOKAN_FILE_INFO) *FileInfo {
 }
 
 func packTime(t time.Time) C.FILETIME {
+	if t.IsZero() {
+		return C.FILETIME{}
+	}
 	ft := syscall.NsecToFiletime(t.UnixNano())
 	return C.FILETIME{dwLowDateTime: C.DWORD(ft.LowDateTime), dwHighDateTime: C.DWORD(ft.HighDateTime)}
 }
 func unpackTime(c C.FILETIME) time.Time {
+	// Zero means ignore. Sometimes -1 is passed for ignore too.
+	if c == (C.FILETIME{}) || c == (C.FILETIME{0xFFFFffff, 0xFFFFffff}) {
+		return time.Time{}
+	}
 	ft := syscall.Filetime{LowDateTime: uint32(c.dwLowDateTime), HighDateTime: uint32(c.dwHighDateTime)}
 	// This is valid, see docs and code for package time.
 	return time.Unix(0, ft.Nanoseconds())
@@ -654,6 +662,7 @@ func (ctx *dokanCtx) Run(path string, flags MountFlag) error {
 	return nil
 }
 
+// nolint
 func dokanErrString(code int32) string {
 	switch code {
 	case C.kbfsLibDokan_ERROR:
@@ -687,7 +696,8 @@ func (ctx *dokanCtx) Free() {
 // the requestor of this file system operation. Remember to
 // call Close on the Token.
 func (fi *FileInfo) getRequestorToken() (syscall.Token, error) {
-	hdl := syscall.Handle(C.kbfsLibdokan_OpenRequestorToken(fi.ptr))
+	raw := C.kbfsLibdokan_OpenRequestorToken(fi.ptr)
+	hdl := syscall.Handle(uintptr(raw))
 	var err error
 	if hdl == syscall.InvalidHandle {
 		// Tokens are value types, so returning nil is impossible,
@@ -737,7 +747,7 @@ func unmount(path string) error {
 	res := C.kbfsLibdokan_RemoveMountPoint((*C.WCHAR)(stringToUtf16Ptr(path)))
 	if res == C.FALSE {
 		debug("Unmount: Failed!")
-		return errors.New("DokanRemoveMountPoint failed!")
+		return errors.New("kbfsLibdokan_RemoveMountPoint failed")
 	}
 	debug("Unmount: Success!")
 	return nil
@@ -752,18 +762,21 @@ func lpcwstrToString(ptr C.LPCWSTR) string {
 	for tmp := ptr; *tmp != 0; tmp = (C.LPCWSTR)(unsafe.Pointer((uintptr(unsafe.Pointer(tmp)) + 2))) {
 		len++
 	}
-	raw := ptrUcs2Slice(ptr, len)
+	raw := ptrUcs2Slice(unsafe.Pointer(ptr), len)
 	return string(utf16.Decode(raw))
 }
 
 // stringToUtf16Buffer pokes a string into a Windows wide string buffer.
 // On overflow does not poke anything and returns false.
 func stringToUtf16Buffer(s string, ptr C.LPWSTR, blenUcs2 C.DWORD) bool {
+	return stringToUtf16BufferPtr(s, unsafe.Pointer(ptr), blenUcs2)
+}
+func stringToUtf16BufferPtr(s string, ptr unsafe.Pointer, blenUcs2 C.DWORD) bool {
 	if ptr == nil || blenUcs2 == 0 {
 		return false
 	}
 	src := utf16.Encode([]rune(s))
-	tgt := ptrUcs2Slice(C.LPCWSTR(unsafe.Pointer(ptr)), int(blenUcs2))
+	tgt := ptrUcs2Slice(ptr, int(blenUcs2))
 	if len(src)+1 >= len(tgt) {
 		tgt[0] = 0
 		return false
@@ -782,9 +795,9 @@ func stringToUtf16Ptr(s string) unsafe.Pointer {
 
 // ptrUcs2Slice takes a C Windows wide string and length in UCS2
 // and returns it aliased as a uint16 slice.
-func ptrUcs2Slice(ptr C.LPCWSTR, lenUcs2 int) []uint16 {
+func ptrUcs2Slice(ptr unsafe.Pointer, lenUcs2 int) []uint16 {
 	return *(*[]uint16)(unsafe.Pointer(&reflect.SliceHeader{
-		Data: uintptr(unsafe.Pointer(ptr)),
+		Data: uintptr(ptr),
 		Len:  lenUcs2,
 		Cap:  lenUcs2}))
 }

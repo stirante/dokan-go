@@ -5,7 +5,7 @@
 package dokan
 
 import (
-	"github.com/keybase/kbfs/dokan/winacl"
+	"github.com/stirante/dokan-go/winacl"
 )
 
 // MountHandle holds a reference to a mounted filesystem.
@@ -18,7 +18,7 @@ type MountHandle struct {
 // Mount mounts a FileSystem with the given Config.
 // Mount returns when the filesystem has been mounted or there is an error.
 func Mount(cfg *Config) (*MountHandle, error) {
-	err := loadDokanDLL(cfg.DllPath)
+	err := loadDokanDLL(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (m *MountHandle) BlockTillDone() error {
 	// Two cases:
 	// 1) Mount got send from Mounted hook (nil) and we wait for the ctx.Run case
 	// 2) Mount got send from Mount (which errored) and closed the channel
-	err, _ := <-m.errChan
+	err := <-m.errChan
 	return err
 }
 

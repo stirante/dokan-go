@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
+//go:build !debug
 // +build !debug
 
 package dokan
 
-const isDebug = false
+const isDebug = false //nolint
 
-func debug(...interface{})          {}
-func debugf(string, ...interface{}) {}
+func debug(...interface{})          {} // nolint
+func debugf(string, ...interface{}) {} // nolint
