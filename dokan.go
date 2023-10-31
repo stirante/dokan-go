@@ -75,6 +75,21 @@ func (fi *FileInfo) IsDeleteOnClose() bool {
 	return fi.ptr.DeleteOnClose != 0
 }
 
+// IsDirectory Requesting a directory file.
+func (fi *FileInfo) IsDirectory() bool {
+	return fi.ptr.IsDirectory != 0
+}
+
+// WriteToEndOfFile If TRUE, write to the current end of file instead of using the Offset parameter.
+func (fi *FileInfo) WriteToEndOfFile() bool {
+	return fi.ptr.WriteToEndOfFile != 0
+}
+
+// ProcessId for the thread that originally requested a given I/O operation. .
+func (fi *FileInfo) ProcessId() uint64 {
+	return uint64(fi.ptr.ProcessId)
+}
+
 // IsRequestorUserSidEqualTo returns true if the argument is equal
 // to the sid of the user associated with the filesystem request.
 func (fi *FileInfo) IsRequestorUserSidEqualTo(sid *winacl.SID) bool {
